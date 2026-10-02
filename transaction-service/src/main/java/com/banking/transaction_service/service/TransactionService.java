@@ -82,6 +82,7 @@ public class TransactionService {
                 .description(transaction.getDescription())
                 .transactionId(transaction.getId())
                 .build();
+                
         kafkaTemplate.send(TRANSACTION_INTIATED_TOPIC, transaction.getId(), eventService);
         log.info("SAGA STEP 2 - TransactionInitiatedEvent publish : {} ", transaction.getId());
 
