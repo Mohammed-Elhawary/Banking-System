@@ -116,7 +116,7 @@ public class FraudeDetectionServies {
 
     private boolean isAmountSuspicious(String accountNumber, BigDecimal amount) {
 
-        String avgKey = "fraud:Amount" + accountNumber;
+        String avgKey = "fraud:Amount:" + accountNumber;
         String avrStr = redisTemplate.opsForValue().get(avgKey);
 
         if (avrStr == null) {
@@ -142,7 +142,7 @@ public class FraudeDetectionServies {
 
     private boolean isVelocityExceeded(String accountNumber) {
 
-        String key = "fraud:velocity" + accountNumber;
+        String key = "fraud:velocity:" + accountNumber;
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1) {
             redisTemplate.expire(key, Duration.ofSeconds(60));
