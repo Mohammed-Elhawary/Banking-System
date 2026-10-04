@@ -3,8 +3,12 @@ package com.banking.notification_service.service;
 import java.util.Map;
 
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
+
+import com.banking.notification_service.dto.AccountResponse;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +17,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @RequiredArgsConstructor
 public class NotificationService {
+
+    private final AccountServiceClient accountServiceClient;
+    private final JavaMailSender mailSender;
 
     @KafkaListener(topics = "transaction.otp.generated")
     public void consumeOTPGenerator(
@@ -138,7 +145,14 @@ public class NotificationService {
     }
 
     private void sendAlert(String accountNumber, String title, String message) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'sendAlert'");
+
+        AccountResponse accountResponse = accountServiceClient.getAccount(accountNumber);
+
+        String email = accountResponse.getEmail();
+        SimpleMailMessage mailMessage = new SimpleMailMessage();
+        mailMessage.setTo(email);
+        mailMessage.setSubject(title);
+        mailMessage.setText(message);
+        mailSender.send(mailMessage);
     }
 }

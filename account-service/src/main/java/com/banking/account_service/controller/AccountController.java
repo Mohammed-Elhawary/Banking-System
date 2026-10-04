@@ -19,11 +19,9 @@ import com.banking.account_service.service.AccountService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
-@Slf4j
 @RequiredArgsConstructor
 public class AccountController {
 
@@ -36,19 +34,19 @@ public class AccountController {
         return ResponseEntity.status(HttpStatus.CREATED).body(accountService.createAccount(request));
     };
 
-    @GetMapping("{accountNumber}")
+    @GetMapping("/{accountNumber}")
     public ResponseEntity<AccountResponse> getAccount(@PathVariable String accountNumber) {
         return ResponseEntity.ok(accountService.getAccount(accountNumber));
 
     }
 
-    @GetMapping("{accountNumber}/balance")
+    @GetMapping("/{accountNumber}/balance")
     public ResponseEntity<BigDecimal> GetBalance(@PathVariable String accountNumber) {
         return ResponseEntity.ok(accountService.getBalance(accountNumber));
 
     }
 
-    @PatchMapping("{accountNumber}/blocl")
+    @PatchMapping("/{accountNumber}/block")
     public ResponseEntity<String> BlockAccount(@PathVariable String accountNumber) {
 
         accountService.blockAccount(accountNumber);
@@ -61,7 +59,7 @@ public class AccountController {
      * Called By Transaction service when transfer is intiated
      */
 
-    @PostMapping("{accountNumber}/deduct")
+    @PostMapping("/{accountNumber}/deduct")
     public ResponseEntity<String> DeductBalance(@PathVariable String accountNumber, @RequestParam BigDecimal amount) {
         accountService.deductBalance(accountNumber, amount);
         return ResponseEntity.ok("Blance Deducted successfully");
@@ -76,7 +74,7 @@ public class AccountController {
      *
      */
 
-    @PatchMapping("{accountNumber}/credit")
+    @PatchMapping("/{accountNumber}/credit")
     public ResponseEntity<String> creditBalance(@PathVariable String accountNumber, @RequestParam BigDecimal amount) {
 
         accountService.creditBalance(accountNumber, amount);
