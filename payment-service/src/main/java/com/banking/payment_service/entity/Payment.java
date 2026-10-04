@@ -31,9 +31,13 @@ public class Payment {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    private String razorpayOrderId;
+    private String paymobIntentionId;
 
-    private String razorpayPaymentId;
+    private String paymobOrderId;
+
+    private String clientSecret;
+
+    private String paymobTransactionId;
 
     @Column(nullable = false)
     private String accountNumber;
@@ -45,7 +49,7 @@ public class Payment {
     private String currency;
 
     @Enumerated(EnumType.STRING)
-    private PaymentStatus PaymentStatus;
+    private PaymentStatus paymentStatus;
 
     private String description;
 
@@ -56,5 +60,4 @@ public class Payment {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
-
 }

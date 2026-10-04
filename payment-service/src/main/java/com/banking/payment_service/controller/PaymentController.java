@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.RestController;
 import com.banking.payment_service.dto.CreatePaymentRequest;
 import com.banking.payment_service.dto.PaymentOrderResponse;
 import com.banking.payment_service.service.PaymentService;
-import com.razorpay.RazorpayException;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +27,7 @@ public class PaymentController {
 
         @PostMapping("/create-order")
         public ResponseEntity<PaymentOrderResponse> createPaymentOrder(
-                @Valid @RequestBody CreatePaymentRequest request) throws RazorpayException {
+                @Valid @RequestBody CreatePaymentRequest request) {
 
             return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.createPaymentOrder(request));
         }

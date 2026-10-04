@@ -15,14 +15,15 @@ public class PaymentOrderResponse {
 
     private String paymentId;
 
-    private String razorpayOrderId;
+    private String paymobIntentionId;
 
-    private String razorpayKeyId;
+    private Integer paymobOrderId;
 
     private BigDecimal amount;
 
+    private String clientSecret;
+
     private String currency;
 
-    private String PaymentStatus;
-
+    private String paymentStatus;
 }

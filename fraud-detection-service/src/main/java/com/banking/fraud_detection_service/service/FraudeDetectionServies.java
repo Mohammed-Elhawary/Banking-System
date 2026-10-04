@@ -38,7 +38,7 @@ public class FraudeDetectionServies {
     private int SUSPICIOUS_AMOUNT_MULTIPLIER;
 
     @Value("${fraud.max-balance-percentage}")
-    private int MAX_BALANCE_PERCENTAGE;
+    private double MAX_BALANCE_PERCENTAGE;
 
     public void checkTransaction(Map<String, Object> payload) {
 
