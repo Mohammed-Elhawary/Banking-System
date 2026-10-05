@@ -8,6 +8,8 @@ import com.banking.payment_service.entity.Payment;
 
 public interface PaymentRepository extends JpaRepository<Payment, String> {
 
-    Optional<Payment> findByPaymobOrderId(Integer valueOf);
+    Optional<Payment> findByPaymobOrderId(String valueOf);
+
+    Optional<Payment> findByPaymobTransactionId(String paymobTransactionId);
 
 }

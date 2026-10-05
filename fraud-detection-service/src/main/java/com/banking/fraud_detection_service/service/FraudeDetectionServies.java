@@ -27,7 +27,7 @@ public class FraudeDetectionServies {
     private final String VERIFICATION_REQUIRED_TOPIC = "verification.required";
     private final String FRAUD_CHECK_CLEAN_RESULT_TOPIC = "fraud.check.clean";
 
-    private final KafkaTemplate<String, Object> KafkaTemplate;;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     private final RedisTemplate<String, String> redisTemplate;
 
@@ -46,7 +46,7 @@ public class FraudeDetectionServies {
 
         String accountNumber = (String) payload.get("senderAccountNumber");
 
-        BigDecimal amount = new BigDecimal(payload.get("receiverAccountNumber").toString());
+        BigDecimal amount = new BigDecimal(payload.get("amount").toString());
 
         BigDecimal senderBalance = accountServiceClient.GetBalance(accountNumber);
 
@@ -66,7 +66,7 @@ public class FraudeDetectionServies {
             verificationEvent.put("amount", amount);
             verificationEvent.put("reason", resualt.getReason());
 
-            KafkaTemplate.send(VERIFICATION_REQUIRED_TOPIC, transactionId, verificationEvent);
+            kafkaTemplate.send(VERIFICATION_REQUIRED_TOPIC, transactionId, verificationEvent);
 
         } else {
 
@@ -75,7 +75,7 @@ public class FraudeDetectionServies {
             transactionCleanEvent.put("isFraud", false);
             transactionCleanEvent.put("reason", resualt.getReason());
 
-            KafkaTemplate.send(FRAUD_CHECK_CLEAN_RESULT_TOPIC, transactionId, transactionCleanEvent);
+            kafkaTemplate.send(FRAUD_CHECK_CLEAN_RESULT_TOPIC, transactionId, transactionCleanEvent);
 
         }
 
@@ -109,8 +109,8 @@ public class FraudeDetectionServies {
         BigDecimal maxAllow = senderBalance.multiply(BigDecimal.valueOf(MAX_BALANCE_PERCENTAGE));
 
         log.info("Balance check - amount : {} maxAllow : {} suspicious : {} ", amount, maxAllow,
-                maxAllow.compareTo(amount) > 0);
-        return maxAllow.compareTo(amount) > 0;
+                amount.compareTo(maxAllow) > 0);
+        return amount.compareTo(maxAllow) > 0;
 
     }
 

@@ -31,15 +31,19 @@ public class NotificationService {
             String accountNumber = (String) payload.get("accountNumber");
             String reason = (String) payload.get("reason");
             String otp = (String) payload.get("otp");
-            String amount = (String) payload.get("amount");
-
+            String amount = payload.get("amount").toString();
             sendAlert(accountNumber,
                     "TRANSACTION VERIFICATION REQUIRED",
-                    String.format("Suspious Activity detected on your account "
-                            + "Reason %s "
-                            + "A Transaction of %s is pending verification.  "
-                            + "Your OTP is: %s Valid for 5 minutes. "
-                            + "If this wasn't your - ignore this message"));
+                    String.format(
+                            "Suspicious Activity detected on your account. "
+                            + "Reason: %s. "
+                            + "A Transaction of %s is pending verification. "
+                            + "Your OTP is: %s. Valid for 5 minutes. "
+                            + "If this wasn't your transaction, please contact the bank.",
+                            reason,
+                            amount,
+                            otp
+                    ));
 
         } catch (Exception e) {
             log.info("Error sending OTP notification : {} ", e.getMessage());
@@ -50,10 +54,9 @@ public class NotificationService {
     public void consumeTransactionCompleted(
             @Payload Map<String, Object> payload) {
         try {
-            String senderAccount = (String) payload.get("senderAccount");
-            String receiverAccount = (String) payload.get("receiverAccount");
-            String amount = (String) payload.get("amount");
-
+            String senderAccount = (String) payload.get("senderAccountNumber");
+            String receiverAccount = (String) payload.get("receiverAccountNumber");
+            String amount = payload.get("amount").toString();
             // Send notification to sender account
             sendAlert(senderAccount,
                     "DEBIT TRANSACTION COMPLETED",
@@ -91,15 +94,15 @@ public class NotificationService {
                     "CREDIT TRANSACTION FAILED",
                     String.format(
                             "A Transaction of %s has failed. and your account has been flagged for suspicious activity. "
-                                    + "Sender Account: %s. Reason: %s"
-                                    + " please contact customer  bank support immediately.",
+                            + "Sender Account: %s. Reason: %s"
+                            + " please contact customer  bank support immediately.",
                             amount, senderAccount, reason));
         } catch (Exception e) {
             log.info("Error sending Transaction Failed notification : {} ", e.getMessage());
         }
     }
-    
-    @KafkaListener (topics = "transaction.refunded")
+
+    @KafkaListener(topics = "transaction.refunded")
     public void consumeRefundProcessed(@Payload Map<String, Object> payload) {
         try {
             String accountNumber = (String) payload.get("accountNumber");
@@ -115,7 +118,7 @@ public class NotificationService {
         }
     }
 
-    @KafkaListener (topics = "payment.completed")
+    @KafkaListener(topics = "payment.completed")
     public void consumePaymentCompleted(@Payload Map<String, Object> payload) {
         try {
             String accountNumber = (String) payload.get("accountNumber");

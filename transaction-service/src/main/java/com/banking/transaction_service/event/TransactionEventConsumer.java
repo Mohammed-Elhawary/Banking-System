@@ -17,8 +17,8 @@ import lombok.NoArgsConstructor;
 public class TransactionEventConsumer {
 
     private String id;
-    private String senderAccountName;
-    private String receiverAccountName;
+    private String senderAccountNumber;
+    private String receiverAccountNumber;
     private BigDecimal amount;
     private String description;
 

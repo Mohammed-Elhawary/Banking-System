@@ -1,6 +1,7 @@
 package com.banking.account_service.controller;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,11 +33,19 @@ public class AccountController {
             @Valid @RequestBody CreateAccountRequest request) {
 
         return ResponseEntity.status(HttpStatus.CREATED).body(accountService.createAccount(request));
-    };
+    }
+
+    ;
 
     @GetMapping("/{accountNumber}")
     public ResponseEntity<AccountResponse> getAccount(@PathVariable String accountNumber) {
         return ResponseEntity.ok(accountService.getAccount(accountNumber));
+
+    }
+
+    @GetMapping("/")
+    public ResponseEntity<List<AccountResponse>> getAllAccount() {
+        return ResponseEntity.ok(accountService.getAllAccount());
 
     }
 
@@ -53,12 +62,18 @@ public class AccountController {
         return ResponseEntity.ok("Account blocked successfully");
 
     }
+    @PatchMapping("/{accountNumber}/active")
+    public ResponseEntity<String> ActiveAccount(@PathVariable String accountNumber) {
+
+        accountService.ActiveAccount(accountNumber);
+        return ResponseEntity.ok("Account activated successfully");
+
+    }
 
     /*
      * SAGA Step 1 : Deduct Balance
      * Called By Transaction service when transfer is intiated
      */
-
     @PostMapping("/{accountNumber}/deduct")
     public ResponseEntity<String> DeductBalance(@PathVariable String accountNumber, @RequestParam BigDecimal amount) {
         accountService.deductBalance(accountNumber, amount);
@@ -73,8 +88,7 @@ public class AccountController {
      * 2- Transaction completed -> Credit reciver
      *
      */
-
-    @PatchMapping("/{accountNumber}/credit")
+    @PostMapping("/{accountNumber}/credit")
     public ResponseEntity<String> creditBalance(@PathVariable String accountNumber, @RequestParam BigDecimal amount) {
 
         accountService.creditBalance(accountNumber, amount);

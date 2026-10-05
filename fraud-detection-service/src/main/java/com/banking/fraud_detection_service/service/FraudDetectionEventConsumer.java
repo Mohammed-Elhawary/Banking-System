@@ -23,7 +23,7 @@ public class FraudDetectionEventConsumer {
         try {
             fraudeDetectionServies.checkTransaction(payload);
         } catch (Exception e) {
-            // TODO: handle exception
+            log.error("Fraud check failed for tx {}: {}", payload.get("transactionId"), e.getMessage());
         }
     }
 }

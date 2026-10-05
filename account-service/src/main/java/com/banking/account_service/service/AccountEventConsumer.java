@@ -27,17 +27,17 @@ public class AccountEventConsumer {
      * @param payload
      */
 
-    @KafkaListener(topics = "transaction.complete")
+    @KafkaListener(topics = "transaction.completed")
     public void consumeTransactionCompleted(@Payload Map<String, Object> payload) {
 
         try {
 
-            String reciverAccount = (String) payload.get("reciverAccountNumber");
+            String receiverAccount = (String) payload.get("receiverAccountNumber");
 
             BigDecimal amount = new BigDecimal(payload.get("amount").toString());
-            log.info("Crediting Blance : {} amount : {} ", reciverAccount, amount);
+            log.info("Crediting Blance : {} amount : {} ", receiverAccount, amount);
 
-            accountService.creditBalance(reciverAccount, amount);
+            accountService.creditBalance(receiverAccount, amount);
 
         } catch (Exception e) {
             log.error("Error Crediting account : {} ", e.getMessage());

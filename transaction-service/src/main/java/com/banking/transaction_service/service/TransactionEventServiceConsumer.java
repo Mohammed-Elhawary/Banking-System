@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.stereotype.Service;
 
 import com.banking.transaction_service.entity.Transaction;
 import com.banking.transaction_service.entity.TransactionStatus;
@@ -31,15 +32,16 @@ import lombok.extern.slf4j.Slf4j;
  * - Continue the Saga when Fraud Detection confirms
  * that the transaction is clean.
  */
+@Service
 @Slf4j
 @RequiredArgsConstructor
 public class TransactionEventServiceConsumer {
 
-    private final TransactionRepository transactionrRepository;
+    private final TransactionRepository transactionRepository;
     private final TransactionService transactionService;
 
     private final int OTP_EXPIRY_MINUTE = 5;
-    private final RedisTemplate<String, String> redis;
+    private final RedisTemplate<String, Object> redis;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     SecureRandom random = new SecureRandom();
 
@@ -78,7 +80,7 @@ public class TransactionEventServiceConsumer {
 
             log.info("Verification required -Transaction {} Reason {} ", transactionId, reason);
 
-            Transaction transaction = transactionrRepository.findById(transactionId).orElseThrow(
+            Transaction transaction = transactionRepository.findById(transactionId).orElseThrow(
 
                     () -> new RuntimeException("Transaction not found " + transactionId));
 
@@ -99,7 +101,7 @@ public class TransactionEventServiceConsumer {
             redis.opsForValue().set(otpKey, otp, Duration.ofMinutes(OTP_EXPIRY_MINUTE));
 
             transaction.setTransactionStatus(TransactionStatus.PENDING_VERIFICATION);
-            transactionrRepository.save(transaction);
+            transactionRepository.save(transaction);
 
             log.info("OTP generated for transaction : {} expire in : {}", transactionId, redis.getExpire(otpKey));
 

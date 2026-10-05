@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @AllArgsConstructor
+
 @NoArgsConstructor
 @Data
 @Builder
@@ -17,11 +18,13 @@ public class PaymentOrderResponse {
 
     private String paymobIntentionId;
 
-    private Integer paymobOrderId;
+    private String paymobOrderId;
 
     private BigDecimal amount;
 
     private String clientSecret;
+
+    private String publicKey;
 
     private String currency;
 

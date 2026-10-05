@@ -1,6 +1,7 @@
 package com.banking.account_service.service;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import org.springframework.stereotype.Service;
 
@@ -76,7 +77,7 @@ public class AccountService {
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new AccountNotFoundException(
-                        "Account not found: " + accountNumber));
+                "Account not found: " + accountNumber));
         return mapToResponse(account);
     }
 
@@ -84,7 +85,7 @@ public class AccountService {
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new AccountNotFoundException(
-                        "Account not found: " + accountNumber));
+                "Account not found: " + accountNumber));
         return account.getBalance();
     }
 
@@ -97,10 +98,25 @@ public class AccountService {
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new AccountNotFoundException(
-                        "Account not found: " + accountNumber));
+                "Account not found: " + accountNumber));
         account.setAccountStatus(AccountStatus.BLOCKED);
         accountRepository.save(account);
         log.info("Blocked Account Successfully {} " + accountNumber);
+    }
+
+    /*
+     * Block account - called by Fraud detection Service Via Kafka
+     *
+     * @Param accountNumber
+     */
+    public void ActiveAccount(String accountNumber) {
+        Account account = accountRepository
+                .findByAccountNumber(accountNumber)
+                .orElseThrow(() -> new AccountNotFoundException(
+                "Account not found: " + accountNumber));
+        account.setAccountStatus(AccountStatus.ACTIVE);
+        accountRepository.save(account);
+        log.info("Active Account Successfully {} " + accountNumber);
     }
 
     /*
@@ -181,13 +197,21 @@ public class AccountService {
                 .accountNumber(savedAccount.getAccountNumber())
                 .accountStatus(savedAccount.getAccountStatus())
                 .accountType(savedAccount.getAccountType())
+                .phone(savedAccount.getPhone())
                 .balance(savedAccount.getBalance())
                 .email(savedAccount.getEmail())
-                .balance(savedAccount.getBalance())
                 .dailyTransactionLimit(savedAccount.getDailyTransactionLimit())
                 .id(savedAccount.getId())
                 .createdAt(savedAccount.getCreatedAt())
                 .updatedAt(savedAccount.getUpdatedAt())
                 .build();
+    }
+
+    public List<AccountResponse> getAllAccount() {
+
+        List<Account> accounts = accountRepository.findAll();
+        return accounts.stream()
+                .map(this::mapToResponse)
+                .toList();
     }
 }
