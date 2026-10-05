@@ -21,12 +21,29 @@ public class AccountEventConsumer {
     private final AccountService accountService;
 
     /*
-     * consume transaction complete event kafka
-     * Credit reciver account
+     * CONSUME TRANSACTION COMPLETED - CREDIT RECEIVER
      *
-     * @param payload
+     * Triggered by:
+     * transaction.completed Kafka event
+     *
+     * PURPOSE:
+     * - Deliver the transferred amount to the receiver account.
+     *
+     * FLOW:
+     * 1. Read receiverAccountNumber and amount from the event.
+     * 2. Call the service layer to credit that account.
+     *
+     * NOTE:
+     * - This is the only path that credits the receiver. The credit
+     * call inside transaction-service's completeTransactionResponse
+     * is commented out, so the event is what actually moves the money.
+     * - By the time this runs, the transaction is already marked
+     * COMPLETED. If the credit throws, the exception is logged and
+     * swallowed with no retry, and the amount is lost for good.
+     * - No status guard, so a redelivered event credits twice.
+     *
+     * @param payload Decoded transaction.completed event.
      */
-
     @KafkaListener(topics = "transaction.completed")
     public void consumeTransactionCompleted(@Payload Map<String, Object> payload) {
 
@@ -45,13 +62,28 @@ public class AccountEventConsumer {
 
     }
 
-    /*
-     * consume Fraud detection event from kafka
+/*
+     * CONSUME FRAUD DETECTION - BLOCK ACCOUNT
      *
-     * Block the flagg account
+     * Triggered by:
+     * fraud.detected Kafka event
      *
-     * @param payload
+     * PURPOSE:
+     * - Freeze the sender account after a failed OTP check.
      *
+     * FLOW:
+     * 1. Read accountNumber from the event.
+     * 2. Call the service layer to block that account.
+     *
+     * NOTE:
+     * - The event is consumed asynchronously, while transaction-service
+     * performs the refund synchronously right after publishing it. If
+     * this block lands first, the refund credit is rejected because the
+     * account is no longer ACTIVE.
+     * - Exceptions are logged and swallowed, so the account may stay
+     * unblocked.
+     *
+     * @param payload Decoded fraud.detected event.
      */
     @KafkaListener(topics = "fraud.detected")
 

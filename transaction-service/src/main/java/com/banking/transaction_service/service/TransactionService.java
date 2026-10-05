@@ -42,17 +42,34 @@ public class TransactionService {
     private static final String FRAUD_DETECTED_TOPIC = "fraud.detected";
 
     /*
-         * SAGA STEP 1 - initiate transfer
+         * SAGA STEP 1 - INITIATE TRANSFER
          *
-         * @param request
-         * deducts from sender via fegin
+         * PURPOSE:
+         * - Open a new transfer transaction between two accounts.
+         * - Deduct the amount from the sender account.
+         * - Publish the event that triggers the fraud check.
          *
-         * SAVE TRANSACTION AS PROCCESSING
+         * FLOW:
+         * 1. Build a Transaction entity with status PENDING and a random
+         * reference number, then save it to get its generated id.
+         * 2. Call account-service to deduct the amount from the sender.
+         * 3. Flip the status to PROCCESSING and save again.
+         * 4. Publish transaction.initiated on Kafka, keyed by transaction id.
+         * 5. Return the transaction as it currently stands.
          *
-         * PUBLISH EVENT TO KAFKA FOR FRAUD CHECK
+         * NOTE:
+         * - No OTP is generated here. The OTP is only produced when the
+         * fraud check reports the transaction as suspicious.
+         * - The response is returned before the fraud check runs, so the
+         * caller normally observes status PROCCESSING, not the final state.
+         * - The receiver is not credited here. The credit happens later,
+         * asynchronously, when account-service consumes
+         * transaction.completed.
          *
-         * @return
+         * @param request Sender account, receiver account, amount and
+         *                description of the transfer.
          *
+         * @return TransactionResponse reflecting status PROCCESSING.
      */
     public TransactionResponse transfer(TransferRequest request) {
 
@@ -97,21 +114,27 @@ public class TransactionService {
         return mapToResponse(transaction);
     }
 
-    /*
-         * Get Transaction By ID
-         *
-         * @param transferId
+/*
+         * GET TRANSACTION BY ID
          *
          * PURPOSE:
-         * - Retrieve a transaction using its ID.
+         * - Retrieve a single transaction using its id.
          *
          * FLOW:
-         * 1. Search for the transaction in the database.
-         * 2. If transaction doesn't exist -> throw exception.
-         * 3. Map the entity to TransactionResponse.
+         * 1. Look the transaction up by primary key.
+         * 2. Throw a RuntimeException if no row matches.
+         * 3. Map the entity to a TransactionResponse.
          *
-         * @return TransactionResponse
-     */
+         * NOTE:
+         * - Throws an unchecked RuntimeException, so an unknown id
+         * surfaces as HTTP 500 rather than 404.
+         *
+         * @param transferId Primary key of the transaction. Despite the
+         *                   name, this is the transaction id and not the
+         *                   reference number.
+         *
+         * @return TransactionResponse of the matching transaction.
+      */
     public TransactionResponse getTransaction(String transferId) {
 
         return mapToResponse(transactionRepository.findById(transferId)
@@ -119,21 +142,28 @@ public class TransactionService {
 
     }
 
-    /*
-         * Get Account Transaction History
-         *
-         * @param accountNumber
+/*
+         * GET ACCOUNT TRANSACTION HISTORY
          *
          * PURPOSE:
-         * - Retrieve all transactions where the account is
-         * either the sender or receiver.
+         * - List every transaction in which the account took part,
+         * as sender or as receiver.
          *
          * FLOW:
-         * 1. Search transactions by sender or receiver account number.
-         * 2. Convert each Transaction entity to TransactionResponse.
+         * 1. Query by sender account number OR receiver account number.
+         * 2. Map each Transaction entity to a TransactionResponse.
          *
-         * @return List<TransactionResponse>
-     */
+         * NOTE:
+         * - No date range or status filter is applied, so the result
+         * includes PENDING, PROCCESSING, PENDING_VERIFICATION,
+         * COMPLETED and FLAGGED transactions alike.
+         *
+         * @param accountNumber Account number to look up in both
+         *                      the sender and the receiver columns.
+         *
+         * @return List of TransactionResponse, empty when the account
+         *         has no transactions.
+      */
     public List<TransactionResponse> getTransactionHistory(String accountNumber) {
 
         List<Transaction> transactions = transactionRepository
@@ -142,37 +172,50 @@ public class TransactionService {
         return transactions.stream().map(this::mapToResponse).toList();
     }
 
-    /*
-         * SAGA STEP 3 - Verify OTP
-         *
-         * @param transactionId
-         *
-         * @param otp
+/*
+         * SAGA STEP 3 - VERIFY OTP
          *
          * PURPOSE:
-         * - Verify the OTP generated for the transaction.
+         * - Verify the OTP that was generated for a transaction
+         * that the fraud check flagged as suspicious.
          *
          * FLOW:
-         * 1. Retrieve transaction from database.
-         * 2. Get OTP from Redis using transactionId.
+         * 1. Load the transaction from the database.
+         * 2. Reject the call unless the status is PENDING_VERIFICATION.
+         * 3. Read the expected OTP from Redis using the key
+         * "verification:otp:" + transactionId.
          *
-         * OTP EXPIRED:
-         * - Compensate transaction.
-         * - Refund amount to sender.
+         * OTP EXPIRED OR MISSING:
+         * - Compensate the transaction and refund the sender.
          *
          * WRONG OTP:
-         * - Delete OTP from Redis.
-         * - Publish fraud.detected event.
-         * - Block sender account.
-         * - Compensate transaction.
-         * - Refund amount.
+         * - Delete the OTP from Redis.
+         * - Publish fraud.detected so account-service blocks the sender.
+         * - Compensate the transaction and refund the sender.
          *
          * CORRECT OTP:
-         * - Delete OTP from Redis.
+         * - Delete the OTP from Redis.
          * - Complete the transaction.
          *
-         * @return TransactionResponse
-     */
+         * NOTE:
+         * - An OTP only exists for transactions that entered the
+         * PENDING_VERIFICATION state. Transactions that the fraud
+         * check cleared never get one and are completed without
+         * ever reaching this method.
+         * - The PENDING_VERIFICATION guard makes this method safe to
+         * call on an already completed or refunded transaction: it
+         * throws instead of compensating a second time.
+         * - The OTP key has a 5 minute TTL, so a missing key means
+         * either expired or already consumed.
+         *
+         * @param transactionId Id of the transaction being verified.
+         *
+         * @param otp One-time code the user submitted. Compared with
+         *            equals against the value stored in Redis.
+         *
+         * @return TransactionResponse after the outcome was applied:
+         *         COMPLETED on success, FLAGGED on wrong or expired OTP.
+      */
     public TransactionResponse verifyOTP(String transactionId, String otp) {
 
         log.info("OTP Verification for the transaction : {} ", transactionId);
@@ -217,26 +260,34 @@ public class TransactionService {
 
     }
 
-    /*
-         * SAGA COMPLETION - completeTransactionResponse
+/*
+         * SAGA COMPLETION - COMPLETE TRANSACTION
          *
          * PURPOSE:
-         * - Complete the transaction after all required
-         * verification steps have succeeded.
+         * - Mark the transaction as successfully finished.
+         * - Announce the success so the receiver gets credited.
          *
          * FLOW:
-         * 1. Credit the receiver account.
-         * 2. Change transaction status to COMPLETED.
-         * 3. Set completedAt timestamp.
-         * 4. Save updated transaction.
-         * 5. Publish transaction.completed event.
+         * 1. Set status to COMPLETED.
+         * 2. Stamp completedAt with the current time.
+         * 3. Save the updated transaction.
+         * 4. Publish transaction.completed on Kafka, keyed by
+         * transaction id.
          *
-         * SUCCESS:
-         * - Receiver receives the transferred amount.
-         * - Transaction becomes COMPLETED.
+         * NOTE:
+         * - This method does NOT credit the receiver. The direct
+         * creditBalance call is commented out in the body. The credit
+         * is performed by account-service when it consumes
+         * transaction.completed, so it happens asynchronously and
+         * after this transaction is already marked COMPLETED.
+         * - There is no status guard here. The caller is responsible
+         * for only ever invoking this on a transaction that is still
+         * in progress.
          *
-         * @param transaction
-     */
+         * @param transaction The transaction to complete. Its status
+         *                    and completedAt are mutated in place
+         *                    before saving.
+      */
     private void completeTransactionResponse(Transaction transaction) {
         log.info("SAGA COMPLETION - refunding : {} Amount {} ", transaction.getSenderAccountNumber(),
                 transaction.getAmount());
@@ -260,27 +311,28 @@ public class TransactionService {
     }
 
     /*
-         * SAGA COMPENSATION - Wrong OTP
+         * SAGA COMPENSATION - WRONG OTP
          *
          * PURPOSE:
          * - Handle a security failure caused by an incorrect OTP.
          *
          * FLOW:
-         * 1. Publish fraud.detected event.
-         * 2. Account Service consumes the event and blocks the account.
-         * 3. Execute Saga compensation.
-         * 4. Refund the transferred amount to the sender.
-         * 5. Mark the transaction as FLAGGED.
+         * 1. Publish fraud.detected on Kafka with the sender account
+         * number, so account-service blocks that account.
+         * 2. Run the Saga compensation to refund the sender.
          *
-         * RESULT:
-         * - Account is blocked.
-         * - Transaction is cancelled/flagged.
-         * - Amount is refunded.
+         * NOTE:
+         * - The block and the refund are not atomic. fraud.detected is
+         * published first and consumed asynchronously, while the refund
+         * runs synchronously in this thread. If the block lands before
+         * the credit call, account-service rejects the credit because
+         * the account is no longer ACTIVE, and the refund is lost.
          *
-         * @param transaction
+         * @param transaction Transaction to compensate.
          *
-         * @param reason
-     */
+         * @param reason Human readable explanation stored on the
+         *               transaction and sent in both Kafka events.
+      */
     private void blockedAccountAndCompansate(Transaction transaction, String reason) {
 
         // Publish Fraud Detected -> Account Service will block Account
@@ -299,28 +351,32 @@ public class TransactionService {
     }
 
     /*
-         * SAGA COMPENSATION - Refund Transaction
+         * SAGA COMPENSATION - REFUND TRANSACTION
          *
          * PURPOSE:
-         * - Roll back the previous successful Saga operation
-         * when the transaction cannot be completed.
+         * - Roll back the debit that transfer() already performed
+         * when the transaction can no longer be completed.
          *
          * FLOW:
-         * 1. Credit the amount back to the sender.
-         * 2. Mark transaction as FLAGGED.
-         * 3. Store the failure reason.
-         * 4. Save transaction.
-         * 5. Publish transaction.refunded event.
+         * 1. Credit the amount back to the sender through account-service.
+         * 2. Mark the transaction as FLAGGED.
+         * 3. Store the reason plus a refund timestamp in reasoneFailure.
+         * 4. Save the updated transaction.
+         * 5. Publish transaction.refunded on Kafka, keyed by
+         * transaction id.
          *
-         * RESULT:
-         * - Sender receives the refunded amount.
-         * - Transaction is marked as FLAGGED.
-         * - Notification Service can notify the user.
+         * NOTE:
+         * - The refund key in the event is spelled "sernderAccountNumber".
+         * The notification service reads "accountNumber" instead, so
+         * it never resolves a recipient for this event.
+         * - The credit is synchronous and has no idempotency guard, so
+         * calling this twice for one transaction refunds twice.
          *
-         * @param transaction
+         * @param transaction Transaction to compensate.
          *
-         * @param reason
-     */
+         * @param reason Human readable explanation stored on the
+         *               transaction and sent in the refund event.
+      */
     private void compansateTransaction(Transaction transaction, String reason) {
 
         log.warn("SAGA COMPENSATION - refunding : {} Amount {} ", transaction.getSenderAccountNumber(),
@@ -346,6 +402,26 @@ public class TransactionService {
 
     }
 
+/*
+     * MAP TRANSACTION TO RESPONSE
+     *
+     * PURPOSE:
+     * - Convert a Transaction entity into its API representation.
+     *
+     * FLOW:
+     * 1. Copy every field across to the response builder.
+     * 2. Return the built TransactionResponse.
+     *
+     * NOTE:
+     * - createdAt exists on the entity but is not copied, so it always
+     * comes back null in the response.
+     * - completedAt is set twice on the builder; both calls pass the
+     * same value, so the duplicate has no effect.
+     *
+     * @param transaction Entity to map.
+     *
+     * @return TransactionResponse built from the entity.
+     */
     private TransactionResponse mapToResponse(Transaction transaction) {
         return TransactionResponse.builder()
                 .id(transaction.getId())
@@ -362,25 +438,33 @@ public class TransactionService {
                 .build();
     }
 
-    /*
-         * SAGA CONTINUATION - Process Clean Fraud Result
+/*
+         * SAGA CONTINUATION - PROCESS CLEAN FRAUD RESULT
+         *
+         * Triggered by:
+         * - The fraud.check.clean Kafka event.
          *
          * PURPOSE:
-         * - Continue the Saga after Fraud Detection confirms
-         * that the transaction is clean.
+         * - Continue the Saga for a transaction the fraud check cleared.
          *
          * FLOW:
-         * 1. Retrieve transaction from database.
-         * 2. Verify that transaction is still PROCESSING.
-         * 3. If not PROCESSING -> skip processing.
-         * 4. Complete the transaction.
+         * 1. Load the transaction from the database.
+         * 2. If the status is not PROCCESSING, log and return.
+         * 3. Complete the transaction.
          *
-         * SAFETY CHECK:
-         * - Prevent completing a transaction that has already
-         * been cancelled, refunded, or completed.
+         * NOTE:
+         * - This path completes a transfer WITHOUT any OTP. It runs
+         * when the fraud check reports the transaction as clean, and
+         * it never reads Redis. An OTP is only involved when the fraud
+         * check flags the transaction, which sends it to
+         * PENDING_VERIFICATION instead.
+         * - The only guard is the PROCCESSING check. It stops a
+         * transaction that was already cancelled, refunded or
+         * completed from being completed again, but it does not verify
+         * the OTP.
          *
-         * @param transactionId
-     */
+         * @param transactionId Id of the transaction to continue.
+      */
     public void processCleanResult(String transactionId) {
         Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new RuntimeException("Transaction Not Found " + transactionId));

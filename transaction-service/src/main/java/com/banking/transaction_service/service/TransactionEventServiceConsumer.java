@@ -48,26 +48,38 @@ public class TransactionEventServiceConsumer {
     private final static String TRANSACTION_OTP_GENERATED_TOPIC = "transaction.otp.generated";
 
     /*
-     * SAGA STEP - Generate OTP
+     * SAGA STEP - GENERATE OTP
      *
      * Triggered by:
      * verification.required Kafka event
      *
-     * @param payload
+     * PURPOSE:
+     * - Issue an OTP for a transaction the fraud check flagged.
+     * - Park the transaction until the user submits that OTP.
      *
      * FLOW:
-     * 1. Get transactionId, accountNumber and reason from event.
-     * 2. Find transaction in database.
-     * 3. Check that transaction is still PROCESSING.
-     * 4. Generate a 6-digit OTP.
-     * 5. Store OTP in Redis with 5-minute expiration.
-     * 6. Change transaction status to PENDING_VERIFICATION.
-     * 7. Publish transaction.otp.generated event.
+     * 1. Read transactionId, accountNumber and reason from the event.
+     * 2. Load the transaction from the database.
+     * 3. Return early unless the status is PROCCESSING.
+     * 4. Generate a random 6-digit code.
+     * 5. Store it in Redis under "verification:otp:" + transactionId
+     * with a 5 minute TTL.
+     * 6. Set the status to PENDING_VERIFICATION and save.
+     * 7. Publish transaction.otp.generated so notification-service can
+     * deliver the code.
      *
      * RESULT:
-     * - OTP is stored temporarily in Redis.
-     * - User can receive the OTP through Notification Service.
-     * - Transaction waits for OTP verification.
+     * - The OTP lives in Redis until it expires or is consumed.
+     * - The transaction waits in PENDING_VERIFICATION.
+     * - No money moves until verifyOTP accepts the code.
+     *
+     * NOTE:
+     * - Exceptions are caught and logged, so a failure here is silent
+     * and the transaction stays in PROCCESSING forever.
+     * - The amount is forwarded as the raw object taken from the
+     * incoming payload, not re-read from the entity.
+     *
+     * @param payload Decoded verification.required event.
      */
     @KafkaListener(topics = "verification.required")
     public void consumeVerificationRequired(@Payload Map<String, Object> payload) {
@@ -124,22 +136,32 @@ public class TransactionEventServiceConsumer {
     }
 
     /*
-     * SAGA CONTINUATION - Fraud Check Clean Result
+     * SAGA CONTINUATION - FRAUD CHECK CLEAN RESULT
      *
      * Triggered by:
      * fraud.check.clean Kafka event
      *
-     * @param payload
+     * PURPOSE:
+     * - Continue the Saga for a transaction the fraud check cleared.
      *
      * FLOW:
-     * 1. Get transactionId from Kafka event.
-     * 2. Send transactionId to TransactionService.
-     * 3. Verify that transaction is still PROCESSING.
-     * 4. Continue the Saga and complete the transaction.
+     * 1. Read the transactionId from the event.
+     * 2. Hand it to the service layer, which completes the transaction
+     * if it is still PROCCESSING.
      *
      * RESULT:
-     * - Fraud Detection confirmed that the transaction is clean.
-     * - Transaction continues to the next Saga step.
+     * - The transaction becomes COMPLETED and the receiver is credited
+     * through transaction.completed.
+     * - No OTP is involved: a clean result completes the transaction
+     * directly.
+     *
+     * NOTE:
+     * - This listener ignores the isFraud and reason fields of the
+     * event and trusts the topic alone.
+     * - Exceptions are caught and logged, so a failure is silent and
+     * the transaction stays in PROCESSING.
+     *
+     * @param payload Decoded fraud.check.clean event.
      */
     @KafkaListener(topics = "fraud.check.clean")
     public void consumeFraudCheckCleanResult(@Payload Map<String, Object> payload) {

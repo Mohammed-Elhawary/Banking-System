@@ -40,6 +40,34 @@ public class FraudeDetectionServies {
     @Value("${fraud.max-balance-percentage}")
     private double MAX_BALANCE_PERCENTAGE;
 
+    /*
+     * CHECK TRANSACTION FOR FRAUD
+     *
+     * Triggered by:
+     * transaction.initiated Kafka event
+     *
+     * PURPOSE:
+     * - Decide whether a transfer may proceed on its own or needs OTP
+     * verification.
+     * - Route the Saga down the matching branch by publishing to Kafka.
+     *
+     * FLOW:
+     * 1. Read transactionId, senderAccountNumber and amount.
+     * 2. Fetch the sender's current balance from account-service.
+     * 3. Run the three fraud checks.
+     * 4. If fraud is suspected, publish verification.required so the
+     * transaction-service generates an OTP.
+     * 5. Otherwise publish fraud.check.clean so the transaction-service
+     * completes the transaction.
+     *
+     * NOTE:
+     * - The balance is read AFTER transaction-service already debited
+     * the sender, so it is the post-debit balance.
+     * - The two branches are mutually exclusive; exactly one topic is
+     * published per transaction.
+     *
+     * @param payload Decoded transaction.initiated event.
+     */
     public void checkTransaction(Map<String, Object> payload) {
 
         String transactionId = (String) payload.get("transactionId");
@@ -81,6 +109,31 @@ public class FraudeDetectionServies {
 
     }
 
+    /*
+     * PERFORM FRAUD CHECKS
+     *
+     * PURPOSE:
+     * - Run every rule in order and return the first violation found.
+     *
+     * FLOW:
+     * 1. Velocity rule: more than the configured number of transfers
+     * within 60 seconds.
+     * 2. Amount rule: amount above the multiplier of the account's
+     * running average.
+     * 3. Balance rule: amount above the configured share of the
+     * remaining balance.
+     * 4. If none trigger, return a clean result with no reason.
+     *
+     * NOTE:
+     * - Short-circuits on the first match, so only one reason is
+     * reported even when several rules would fire.
+     *
+     * @param amount        Amount of the transfer under review.
+     * @param accountNumber Sender account number.
+     * @param senderBalance Sender balance after the debit.
+     *
+     * @return FraudCheckResualt with isFraud and a reason string.
+     */
     private FraudCheckResualt performFraudChecks(BigDecimal amount, String accountNumber, BigDecimal senderBalance) {
 
         if (isVelocityExceeded(accountNumber)) {
@@ -104,6 +157,26 @@ public class FraudeDetectionServies {
         return FraudCheckResualt.builder().fraud(false).reason(null).build();
     }
 
+    /*
+     * CHECK TRANSACTION AGAINST BALANCE
+     *
+     * PURPOSE:
+     * - Flag a transfer that consumes most of the remaining balance.
+     *
+     * FLOW:
+     * 1. Compute the allowed maximum as the balance times the configured
+     * percentage.
+     * 2. Compare the amount against that maximum.
+     *
+     * NOTE:
+     * - The percentage comes from fraud.max-balance-percentage, so a
+     * balance of 1000 with a 0.9 setting allows at most 900.
+     *
+     * @param senderBalance Sender balance after the debit.
+     * @param amount        Amount of the transfer under review.
+     *
+     * @return true when the amount exceeds the allowed maximum.
+     */
     private boolean isBalanceCheckFaild(BigDecimal senderBalance, BigDecimal amount) {
 
         BigDecimal maxAllow = senderBalance.multiply(BigDecimal.valueOf(MAX_BALANCE_PERCENTAGE));
@@ -114,6 +187,33 @@ public class FraudeDetectionServies {
 
     }
 
+    /*
+     * CHECK TRANSACTION AGAINST AMOUNT HISTORY
+     *
+     * PURPOSE:
+     * - Flag an amount that is far larger than what this account
+     * normally moves.
+     *
+     * FLOW:
+     * 1. Read the running average from Redis under "fraud:Amount:" +
+     * accountNumber.
+     * 2. If no average exists yet, store this amount as the seed and
+     * treat the transaction as clean.
+     * 3. Otherwise compute the threshold as the average times the
+     * configured multiplier.
+     * 4. Update the running average to the mean of the old average and
+     * this amount.
+     * 5. Compare the amount against the threshold.
+     *
+     * NOTE:
+     * - The first transaction for an account can never be flagged.
+     * - The Redis key has no TTL, so the average is kept forever.
+     *
+     * @param accountNumber Sender account number.
+     * @param amount        Amount of the transfer under review.
+     *
+     * @return true when the amount exceeds the threshold.
+     */
     private boolean isAmountSuspicious(String accountNumber, BigDecimal amount) {
 
         String avgKey = "fraud:Amount:" + accountNumber;
@@ -140,6 +240,26 @@ public class FraudeDetectionServies {
 
     }
 
+    /*
+     * CHECK TRANSACTION VELOCITY
+     *
+     * PURPOSE:
+     * - Flag an account that issues too many transfers in a short
+     * window.
+     *
+     * FLOW:
+     * 1. Increment the counter under "fraud:velocity:" + accountNumber.
+     * 2. On the first increment, attach a 60 second expiry.
+     * 3. Compare the counter against the configured limit.
+     *
+     * NOTE:
+     * - The limit is a strict greater-than, so with a setting of 5 the
+     * sixth transfer inside the window is the one flagged.
+     *
+     * @param accountNumber Sender account number.
+     *
+     * @return true when the counter exceeds the configured limit.
+     */
     private boolean isVelocityExceeded(String accountNumber) {
 
         String key = "fraud:velocity:" + accountNumber;

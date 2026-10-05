@@ -29,13 +29,30 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final AccountNumberGenerator accountNumberGenerator;
 
-    /*
-     * Create account by account Number
-     *
-     * @Param accountNumber
-     *
-     * @return
-     */
+/*
+         * CREATE ACCOUNT
+         *
+         * PURPOSE:
+         * - Open a new customer account.
+         *
+         * FLOW:
+         * 1. Reject the request if the email is already registered.
+         * 2. Build the Account with status ACTIVE.
+         * 3. Generate a unique account number based on the type.
+         * 4. Apply a default daily limit: 100000 for SAVING,
+         * 500000 otherwise.
+         * 5. Set the opening balance to the initial deposit.
+         * 6. Save and return the account as a response DTO.
+         *
+         * NOTE:
+         * - The dailyTransactionLimit is set here but never enforced
+         * anywhere else in the service.
+         *
+         * @param request Holder name, email, phone, type and opening
+         *                deposit of the new account.
+         *
+         * @return AccountResponse of the freshly created account.
+         */
     public AccountResponse createAccount(CreateAccountRequest request) {
 
         log.info("Creating account for : {}", request.getEmail());
@@ -65,13 +82,21 @@ public class AccountService {
         return mapToResponse(savedAccount);
     }
 
-    /*
-     * Get account by account Number
-     *
-     * @Param accountNumber
-     *
-     * @return
-     */
+/*
+         * GET ACCOUNT BY ACCOUNT NUMBER
+         *
+         * PURPOSE:
+         * - Retrieve the full details of one account.
+         *
+         * FLOW:
+         * 1. Look the account up by its account number.
+         * 2. Throw AccountNotFoundException when no row matches.
+         * 3. Map the entity to an AccountResponse.
+         *
+         * @param accountNumber The account number to look up.
+         *
+         * @return AccountResponse of the matching account.
+         */
     public AccountResponse getAccount(String accountNumber) {
 
         Account account = accountRepository
@@ -81,6 +106,25 @@ public class AccountService {
         return mapToResponse(account);
     }
 
+    /*
+         * GET ACCOUNT BALANCE
+         *
+         * PURPOSE:
+         * - Expose the current balance of an account.
+         *
+         * FLOW:
+         * 1. Look the account up by its account number.
+         * 2. Throw AccountNotFoundException when no row matches.
+         * 3. Return the balance value.
+         *
+         * NOTE:
+         * - No status check is performed, so a blocked account still
+         * reports its balance.
+         *
+         * @param accountNumber The account number to look up.
+         *
+         * @return The current balance.
+         */
     public BigDecimal getBalance(String accountNumber) {
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
@@ -89,11 +133,22 @@ public class AccountService {
         return account.getBalance();
     }
 
-    /*
-     * Block account - called by Fraud detection Service Via Kafka
-     *
-     * @Param accountNumber
-     */
+/*
+         * BLOCK ACCOUNT
+         *
+         * Triggered by:
+         * - Direct API call, or the fraud.detected Kafka event.
+         *
+         * PURPOSE:
+         * - Freeze an account so no further debit or credit can run.
+         *
+         * FLOW:
+         * 1. Look the account up by its account number.
+         * 2. Set the status to BLOCKED.
+         * 3. Save the account.
+         *
+         * @param accountNumber The account number to block.
+         */
     public void blockAccount(String accountNumber) {
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
@@ -104,11 +159,22 @@ public class AccountService {
         log.info("Blocked Account Successfully {} " + accountNumber);
     }
 
-    /*
-     * Block account - called by Fraud detection Service Via Kafka
-     *
-     * @Param accountNumber
-     */
+/*
+         * ACTIVATE ACCOUNT
+         *
+         * Triggered by:
+         * - Direct API call.
+         *
+         * PURPOSE:
+         * - Unfreeze a previously blocked account.
+         *
+         * FLOW:
+         * 1. Look the account up by its account number.
+         * 2. Set the status back to ACTIVE.
+         * 3. Save the account.
+         *
+         * @param accountNumber The account number to activate.
+         */
     public void ActiveAccount(String accountNumber) {
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
@@ -119,14 +185,31 @@ public class AccountService {
         log.info("Active Account Successfully {} " + accountNumber);
     }
 
-    /*
-     * deductBalance from sender Account
-     * called by Transaction servies
-     *
-     * @Param accountNumber
-     *
-     * @param amount
-     */
+/*
+         * SAGA STEP 1 - DEDUCT BALANCE
+         *
+         * Triggered by:
+         * - POST /api/v1/accounts/{accountNumber}/deduct, called by
+         * transaction-service when a transfer starts.
+         *
+         * PURPOSE:
+         * - Take the transfer amount out of the sender's balance.
+         *
+         * FLOW:
+         * 1. Reject a null or non-positive amount.
+         * 2. Load the account.
+         * 3. Reject the operation unless the account is ACTIVE.
+         * 4. Reject the operation unless the balance covers the amount.
+         * 5. Subtract the amount and save.
+         *
+         * NOTE:
+         * - Read-modify-write without row locking, so two concurrent
+         * debits can both pass the balance check.
+         *
+         * @param accountNumber The sender account to debit.
+         *
+         * @param amount        Amount to subtract, must be positive.
+         */
     public void deductBalance(String accountNumber, BigDecimal amount) {
 
         log.info(
@@ -157,11 +240,32 @@ public class AccountService {
         log.info("Balance updated successfully: {}", account.getBalance());
     }
 
-    /*
-     * creditBalance - called by Fraud detection Service Via Kafka
-     *
-     * @Param accountNumber
-     */
+/*
+         * CREDIT BALANCE
+         *
+         * Triggered by:
+         * - PATCH /api/v1/accounts/{accountNumber}/credit, called by
+         * transaction-service for a Saga refund.
+         *
+         * PURPOSE:
+         * - Add an amount back to an account balance.
+         *
+         * FLOW:
+         * 1. Reject a null or non-positive amount.
+         * 2. Load the account.
+         * 3. Reject the operation unless the account is ACTIVE.
+         * 4. Add the amount and save.
+         *
+         * NOTE:
+         * - Rejecting non-ACTIVE accounts means a refund that races a
+         * fraud block fails instead of being applied.
+         * - Read-modify-write without row locking, and no idempotency
+         * key, so repeated calls credit repeatedly.
+         *
+         * @param accountNumber The account to credit.
+         *
+         * @param amount        Amount to add, must be positive.
+         */
     public void creditBalance(String accountNumber, BigDecimal amount) {
         log.info("Credit balance {} from account: {}", amount, accountNumber);
 
@@ -184,13 +288,24 @@ public class AccountService {
 
     }
 
-    /*
-     * Helper method to convert account Object to Account Response
-     *
-     * @Param Account Obj
-     *
-     * @return
-     */
+/*
+         * MAP ACCOUNT TO RESPONSE
+         *
+         * PURPOSE:
+         * - Convert an Account entity into its API representation.
+         *
+         * FLOW:
+         * 1. Copy every field across to the response builder.
+         * 2. Return the built AccountResponse.
+         *
+         * NOTE:
+         * - No password or credential field is copied, so no secret
+         * can leak through this DTO.
+         *
+         * @param savedAccount Entity to map.
+         *
+         * @return AccountResponse built from the entity.
+         */
     private AccountResponse mapToResponse(Account savedAccount) {
         return AccountResponse.builder()
                 .accountHolderName(savedAccount.getAccountHolderName())
@@ -207,6 +322,21 @@ public class AccountService {
                 .build();
     }
 
+    /*
+         * GET ALL ACCOUNTS
+         *
+         * PURPOSE:
+         * - List every account in the system.
+         *
+         * FLOW:
+         * 1. Load all rows from the account table.
+         * 2. Map each entity to an AccountResponse.
+         *
+         * NOTE:
+         * - Unfiltered and unpaginated, so this grows without limit.
+         *
+         * @return List of every account, empty when none exist.
+         */
     public List<AccountResponse> getAllAccount() {
 
         List<Account> accounts = accountRepository.findAll();

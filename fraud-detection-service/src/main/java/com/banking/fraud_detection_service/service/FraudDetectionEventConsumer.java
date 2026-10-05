@@ -16,6 +16,26 @@ public class FraudDetectionEventConsumer {
 
     private final FraudeDetectionServies fraudeDetectionServies;
 
+    /*
+     * CONSUME TRANSACTION INITIATED
+     *
+     * Triggered by:
+     * transaction.initiated Kafka event
+     *
+     * PURPOSE:
+     * - Start the fraud check for every new transfer.
+     *
+     * FLOW:
+     * 1. Log that a transaction arrived for review.
+     * 2. Hand the payload to the fraud check service.
+     *
+     * NOTE:
+     * - Exceptions are caught and logged, so a failed check publishes
+     * neither verification.required nor fraud.check.clean. The
+     * transaction then stays in PROCCESSING with no way to move.
+     *
+     * @param payload Decoded transaction.initiated event.
+     */
     @KafkaListener(topics = "transaction.initiated")
     public void consumeTransactionInitiate(@Payload Map<String, Object> payload) {
 

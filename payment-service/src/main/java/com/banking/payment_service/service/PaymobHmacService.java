@@ -19,6 +19,31 @@ public class PaymobHmacService {
 
     private final PaymobProperties paymobProperties;
 
+    /*
+     * CALCULATE PAYMOB HMAC
+     *
+     * PURPOSE:
+     * - Recompute the HMAC of an incoming webhook so the callback can
+     * be authenticated.
+     *
+     * FLOW:
+     * 1. Read the nested "obj", "order" and "source_data" maps.
+     * 2. Concatenate the 21 required fields into one string, in the
+     * fixed order Paymob specifies.
+     * 3. Sign that string with HmacSHA512 using the configured secret.
+     * 4. Return the digest as a lowercase hex string.
+     *
+     * NOTE:
+     * - Field order and the exact string built here must match Paymob's
+     * own calculation, otherwise every webhook is rejected.
+     * - The concatenation is null-safe because String.valueOf is used
+     * throughout; a missing field becomes the literal "null".
+     * - Any failure is wrapped in IllegalStateException.
+     *
+     * @param payload Raw webhook body as sent by Paymob.
+     *
+     * @return Lowercase hex digest of the HMAC-SHA512 signature.
+     */
     @SuppressWarnings("unchecked")
     public String calculateHmac(Map<String, Object> payload) {
 

@@ -146,6 +146,32 @@ public class PaymentService {
                 .build();
     }
 
+    /*
+         * HANDLE PAYMOB WEBHOOK
+         *
+         * Triggered by:
+         * POST /api/v1/payments/webhook
+         *
+         * PURPOSE:
+         * - Verify an incoming Paymob callback and route it to the
+         * success or failure path.
+         *
+         * FLOW:
+         * 1. Extract the payment object from the "obj" key.
+         * 2. Recompute the HMAC over the payload.
+         * 3. Reject the call with a SecurityException when the computed
+         * value does not match the received one.
+         * 4. Dispatch to handlePaymentSuccess or handlePaymentFailure
+         * based on the "success" flag.
+         *
+         * NOTE:
+         * - Exceptions are logged and rethrown, so Paymob can retry the
+         * callback.
+         * - The comparison ignores case.
+         *
+         * @param payload    Raw webhook body as sent by Paymob.
+         * @param receivedHmac The HMAC Paymob sent in the query string.
+         */
     public void handleWebhook(Map<String, Object> payload
         ,String receivedHmac
     ) {
@@ -196,6 +222,26 @@ public class PaymentService {
         }
     }
 
+    /*
+         * EXTRACT PAYMENT DATA
+         *
+         * PURPOSE:
+         * - Pull the nested payment object out of the webhook body.
+         *
+         * FLOW:
+         * 1. Read the "obj" key from the payload.
+         * 2. Throw IllegalArgumentException when it is absent.
+         * 3. Return it.
+         *
+         * NOTE:
+         * - The cast is unchecked, so a non-map value under "obj"
+         * causes a ClassCastException instead of the intended
+         * IllegalArgumentException.
+         *
+         * @param payload Raw webhook body.
+         *
+         * @return The map stored under "obj".
+         */
     @SuppressWarnings("unchecked")
     private Map<String, Object> extractPaymentData(
             Map<String, Object> payload) {
@@ -211,6 +257,27 @@ public class PaymentService {
         return paymentData;
     }
 
+    /*
+         * HANDLE PAYMENT SUCCESS
+         *
+         * PURPOSE:
+         * - Mark a payment as completed once Paymob confirms it.
+         * - Announce the result so the account owner is notified.
+         *
+         * FLOW:
+         * 1. Read the order id from the nested order object.
+         * 2. Reject the payload when the order information is missing.
+         * 3. Read the Paymob transaction id.
+         * 4. Load the local payment by Paymob order id.
+         * 5. Set the status to COMPLETED and store the transaction id.
+         * 6. Save and publish payment.completed.
+         *
+         * NOTE:
+         * - Nothing is debited or credited on the caller's account
+         * here; the event only informs notification-service.
+         *
+         * @param paymentData The "obj" map of a successful webhook.
+         */
     @SuppressWarnings("unchecked")
     private void handlePaymentSuccess(
             Map<String, Object> paymentData) {
@@ -265,25 +332,29 @@ public class PaymentService {
                 message);
     }
 
-    /*
+/*
          * HANDLE PAYMENT FAILURE
          *
          * PURPOSE:
-         * - Process a failed payment notification received from Paymob.
-         * - Find the related payment in our database.
-         * - Update the payment status to FAILED.
-         * - Publish a payment-failed event to Kafka.
+         * - Mark a payment as failed after Paymob reports it.
+         * - Announce the failure so the account owner is notified.
          *
          * FLOW:
-         * 1. Receive the Paymob webhook payload.
-         * 2. Extract the payment/transaction information.
-         * 3. Find our local Payment record.
-         * 4. Mark the payment as FAILED.
-         * 5. Save the updated payment.
-         * 6. Publish PAYMENT_FAILED event to Kafka.
+         * 1. Read the order id from the nested order object.
+         * 2. Reject the payload when the order information is missing.
+         * 3. Load the local payment by Paymob order id.
+         * 4. Set the status to FAILED with a fixed reason.
+         * 5. Save and publish payment.failed.
          *
-         * @param payload Payment failure data received from Paymob.
-     */
+         * NOTE:
+         * - Every failure gets the same hardcoded reason; nothing from
+         * the payload is stored.
+         * - The whole body is wrapped in a try/catch that logs and
+         * swallows exceptions, so unlike the success path a failure is
+         * never reported back to Paymob and never retried.
+         *
+         * @param paymentData The "obj" map of a failed webhook.
+         */
     @SuppressWarnings("unchecked")
     private void handlePaymentFailure(
             Map<String, Object> paymentData) {
@@ -339,6 +410,22 @@ public class PaymentService {
         }
     }
 
+    /*
+         * GET PAYMENT BY PAYMOB TRANSACTION ID
+         *
+         * PURPOSE:
+         * - Retrieve a payment using the id Paymob assigned to the
+         * transaction.
+         *
+         * FLOW:
+         * 1. Look the payment up by the stored Paymob transaction id.
+         * 2. Throw a RuntimeException when no row matches.
+         * 3. Return the entity.
+         *
+         * @param transactionId Paymob transaction id to look up.
+         *
+         * @return The matching Payment entity.
+     */
     public Payment getPaymentByTransactionId(String transactionId) {
 
         return paymentRepository

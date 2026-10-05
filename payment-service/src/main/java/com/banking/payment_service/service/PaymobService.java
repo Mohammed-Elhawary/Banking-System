@@ -23,6 +23,27 @@ public class PaymobService {
     private final RestClient paymobRestClient;
     private final PaymobProperties properties;
 
+    /*
+     * CREATE PAYMOB INTENTION
+     *
+     * PURPOSE:
+     * - Create a payment intention in Paymob through their HTTP API.
+     *
+     * FLOW:
+     * 1. Convert the amount to the smallest currency unit.
+     * 2. Build the request body with amount, currency, payment method
+     * and special reference.
+     * 3. POST it to /v1/intention/ with the secret key as a token.
+     * 4. Return Paymob's deserialized response.
+     *
+     * NOTE:
+     * - No billing data, notification URL or redirection URL is sent
+     * here, unlike createPaymentOrder in PaymentService which does.
+     *
+     * @param request Amount, currency and special reference.
+     *
+     * @return PaymobIntentionResponse with the ids and client secret.
+     */
     public PaymobIntentionResponse createIntention(
             CreateIntentionRequest request) {
 
