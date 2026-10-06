@@ -16,4 +16,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
             + "OR t.receiverAccountNumber = :accountNumber")
     List<Transaction> findBySenderAccountNumberOrReceiverAccountNumber(
             @Param("accountNumber") String accountNumber);
+
+    List<Transaction> findAllTransactionsBySenderAccountNumber(String accountNumber);
 }

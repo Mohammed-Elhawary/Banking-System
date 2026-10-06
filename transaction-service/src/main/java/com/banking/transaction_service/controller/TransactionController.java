@@ -70,6 +70,12 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getTransactionHistory(accountNumber));
     }
 
+    @GetMapping("/All/{accountNumber}")
+    public ResponseEntity<List<TransactionResponse>> getAllTransaction(@PathVariable String accountNumber) {
+
+        return ResponseEntity.ok(transactionService.getAllTransaction(accountNumber));
+    }
+
     /*
      * POST /api/v1/transactions/{transactionId}/verify?otp=
      *

@@ -164,10 +164,18 @@ public class TransactionService {
          * @return List of TransactionResponse, empty when the account
          *         has no transactions.
       */
-    public List<TransactionResponse> getTransactionHistory(String accountNumber) {
+public List<TransactionResponse> getTransactionHistory(String accountNumber) {
+
+    List<Transaction> transactions = transactionRepository
+            .findBySenderAccountNumberOrReceiverAccountNumber(accountNumber);
+
+    return transactions.stream().map(this::mapToResponse).toList();
+}
+
+    public List<TransactionResponse> getAllTransaction(String accountNumber) {
 
         List<Transaction> transactions = transactionRepository
-                .findBySenderAccountNumberOrReceiverAccountNumber(accountNumber);
+                .findAllTransactionsBySenderAccountNumber(accountNumber);
 
         return transactions.stream().map(this::mapToResponse).toList();
     }
