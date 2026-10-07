@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Paymob Payment</title>
+</head>
+
+<body>
+
+    <h1>Paymob Payment</h1>
+
+    <button id="payButton">
+        Pay 100 EGP
+    </button>
+
+    <p id="status"></p>
+
+    <script>
+
+        const payButton = document.getElementById("payButton");
+        const status = document.getElementById("status");
+
+        payButton.addEventListener("click", async () => {
+
+            try {
+
+                payButton.disabled = true;
+
+                status.textContent = "Creating payment...";
+
+                const response = await fetch(
+                    "http://127.0.0.1:8080/api/v1/payments/create-order",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            accountNumber: "SAV-S09ETI285O",
+                            amount: 100,
+                            description: "Real Paymob payment"
+                        })
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        `Backend returned ${response.status}`
+                    );
+                }
+
+                const data = await response.json();
+
+                console.log("Payment response:", data);
+
+                status.textContent =
+                    "Redirecting to Paymob...";
+
+                const checkoutUrl =
+                    "https://accept.paymob.com/unifiedcheckout/" +
+                    "?publicKey=" +
+                    encodeURIComponent(data.publicKey) +
+                    "&clientSecret=" +
+                    encodeURIComponent(data.clientSecret);
+
+                window.location.href = checkoutUrl;
+
+            } catch (error) {
+
+                console.error(error);
+
+                status.textContent =
+                    "Payment creation failed: " +
+                    error.message;
+
+                payButton.disabled = false;
+            }
+
+        });
+
+    </script>
+
+</body>
+
+</html>
